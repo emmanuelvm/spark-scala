@@ -1,0 +1,188 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+import groovy.util.ConfigObject
+
+buildscript {
+    repositories {
+        maven {
+            name "GNP repository"
+            url "http://nexus.gnp.mx/repository/maven-releases"
+        }
+        maven {
+            name "Maven Central"
+            url "http://nexus.gnp.mx/repository/maven-central/"
+        }
+    }
+    dependencies {
+        // Plugin para autoversionar.
+        classpath 'mx.com.gnp.plugin:gradle-release:2.8.2'
+    }
+}
+
+plugins {
+    //id 'java'
+    id 'scala'
+    id 'eclipse'
+    id 'idea'
+    id 'jacoco'
+    id 'com.github.kt3k.coveralls' version '2.6.3'
+    id 'checkstyle'
+    id 'org.sonarqube' version '2.7'
+    id 'com.github.johnrengelman.shadow' version '4.0.2'
+    //id 'com.github.johnrengelman.shadow' version '6.0.0'
+}
+
+// SE DEBE CAMBIAR LO SIGUIENTE PARA NUEVOS PROYECTOS
+// BASADOS EN ESTE EJEMPLO-PLANTILLA
+
+def description = 'Proyecto Plantilla de Spark Job.'
+
+// El nombre del proyecto está en el archivo settings.gradle
+group = 'mx.com.gnp.dlk.vida'
+
+def nameMainClass = project.name
+//version '1.0'
+
+//GCP Platform
+def scalaVersion = '2.11'
+def sparkVersion = '2.4.0'
+
+//CDH Platform
+//def scalaVersion = '2.11'
+//def sparkVersion = '2.4.0'
+
+//
+// FIN DE CAMBIOS
+
+
+
+
+// Aplicación de plugin para autoversionar, medir cobertura y publicar artefactos.
+apply plugin: 'net.researchgate.release'
+apply from: "${rootDir}/jacoco.gradle"
+apply from: "${rootDir}/artifactPublication.gradle"
+
+
+jar {
+    manifest {
+        attributes "Implementation-Title": project.name,
+                'Implementation-Version': project.version,
+                'Implementation-Vendor-Id': project.group,
+                'Implementation-Vendor': 'GNP',
+                'Implementation-URL': 'https://git.gnp.com.mx/GCP/DATALAKE_GCP/vida_grupo/reservas_tecnicas/gnp_gdp_vdg_polizas_certificado',
+                'Main-Class': project.group + '.' + nameMainClass
+    }
+    zip64 true
+    //archiveFileName = project.name + '_' + scalaVersion + '-' + version + '.jar'
+    //archiveFileName = project.name + '-' + project.version + '.jar'
+    archiveFileName = project.name + '.jar'
+    from {
+        configurations.compile.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF','META-INF/*.DSA'
+}
+
+test {
+    systemProperty "file.encoding", "utf-8"
+}
+
+ext {
+    minCoverageRates = [
+            'instruction': 90,
+            'branch'     : 90,
+            'line'       : 90,
+            'complexity' : 80,
+            'method'     : 100,
+            'class'      : 100
+    ]
+    coverageExclusions = [
+    ]
+}
+
+checkstyle {
+    // Aplica checkstyle sobre el paquete main.
+    sourceSets = [project.sourceSets.main]
+}
+
+sonarqube {
+    properties {
+        property "sonar.buildbreaker.skip" , "false"
+    }
+}
+
+// sourceCompatibility = 1.8
+// compileScala.targetCompatibility = "1.8"
+// compileScala.sourceCompatibility = "1.8"
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+idea {
+    project {
+        jdkName = '1.8'
+        languageLevel = '1.8'
+    }
+}
+
+repositories {
+    maven {
+        name "Maven Central"
+        url "http://nexus.gnp.mx/repository/maven-central/"
+    }
+    maven {
+        name "GNP repository"
+        url "http://nexus.gnp.mx/repository/maven-releases"
+    }
+    maven {
+        name "GNP Third party"
+        url "http://nexus.gnp.mx/repository/third_party_libraries/"
+    }
+}
+
+dependencies {
+    implementation ('org.apache.spark:spark-core_' + scalaVersion + ':' + sparkVersion)
+    implementation ('org.apache.spark:spark-sql_' + scalaVersion + ':' + sparkVersion)
+    implementation ('org.apache.spark:spark-avro_' + scalaVersion + ':' + sparkVersion)
+
+    compile ('com.typesafe:config:1.4.0')
+    compile ('com.google.cloud:google-cloud-storage:1.111.2')
+    compile ('com.google.guava:guava:29.0-jre')
+
+    compile ('com.typesafe.scala-logging:scala-logging_' + scalaVersion + ':' + '3.9.2')
+    compile ('org.slf4j:slf4j-api:1.7.30')
+    compile ('ch.qos.logback:logback-classic:1.2.3')
+
+    //compile group: 'com.crealytics', name: 'spark-excel_' + scalaVersion, version: '0.13.1'
+    //compile 'com.google.cloud:google-cloud-storage:1.111.2'
+    //testCompile group: 'junit', name: 'junit', version: '4.12'
+}
+
+configurations.all {
+    resolutionStrategy {
+        force 'com.google.guava:guava:29.0-jre'
+    }
+}
+
+shadowJar {
+//    archiveBaseName = project.name
+    archiveFileName =  project.name + '.jar'
+    zip64 true
+    relocate ('com.google.common', 'shadow.com.google.common')
+}
+
+project.tasks.assemble.dependsOn project.tasks.shadowJar
+
+tasks.withType(Checkstyle).each { checkstyleTask ->
+    checkstyleTask.doLast {
+        reports.all { report ->
+            def outputFile = report.destination
+            if (outputFile.exists() && outputFile.text.contains("<error ")) {
+                throw new GradleException("There were checkstyle warnings! For more info check $outputFile")
+            }
+        }
+    }
+}
+
+javadoc {
+    failOnError = false
+}
